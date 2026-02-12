@@ -224,9 +224,10 @@ if __name__ == '__main__':
         tb_writer = None
 
     display_step = 4 if args.debug else 100
-    # Cap workers at 2 on Mac (MPS shares system RAM, too many workers cause swap thrash)
-    import platform
-    max_workers = 2 if platform.system() == 'Darwin' else 16
+    # Cap workers based on available CPUs (too many cause thrash on Colab/Mac)
+    import platform, multiprocessing
+    cpu_count = multiprocessing.cpu_count()
+    max_workers = min(cpu_count, 2) if platform.system() == 'Darwin' else min(cpu_count, 4)
     num_workers = min(args.batch_size, max_workers)
     
     # Load checkpoint
