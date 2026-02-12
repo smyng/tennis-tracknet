@@ -238,6 +238,12 @@ def main():
     print("Creating train/test split...")
     create_test_split(args.output, test_game_ids=args.test_games)
 
+    # Create val -> test symlink (TrackNetV3 expects a val split)
+    val_link = Path(args.output) / 'val'
+    if not val_link.exists():
+        val_link.symlink_to('test')
+        print("  Created val -> test symlink")
+
     # Generate background images
     if not args.no_background:
         import numpy as np  # Import here to avoid dependency if skipped
