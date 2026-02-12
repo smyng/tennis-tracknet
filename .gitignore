@@ -1,0 +1,35 @@
+# Data & precomputed (33GB+)
+data/
+ckpts/
+
+# Experiment outputs (checkpoints, logs, predictions)
+exps/
+prediction_tennis/
+
+# Large archives
+*.zip
+*.tar.gz
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Original badminton artifacts
+corrected_test_label/
+figure/
+
+# Scripts (shell)
+*.sh
+
+# Video files
+*.mp4
+*.avi
+*.mov
