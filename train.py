@@ -64,7 +64,7 @@ def get_random_mask(mask_size, mask_ratio):
 
     return mask
 
-def train_tracknet(model, optimizer, data_loader, param_dict):
+def train_tracknet(model, optimizer, data_loader, param_dict, scaler=None):
     """ Train TrackNet model for one epoch.
 
         Args:
@@ -76,7 +76,8 @@ def train_tracknet(model, optimizer, data_loader, param_dict):
                 - param_dict['verbose'] (bool): Control whether to show progress bar
                 - param_dict['bg_mode'] (str): For visualizing current prediction
                 - param_dict['save_dir'] (str): For saving current prediction
-        
+            scaler: GradScaler for mixed precision (None to disable)
+
         Returns:
             (float): Average loss
     """
@@ -88,7 +89,7 @@ def train_tracknet(model, optimizer, data_loader, param_dict):
         data_prob = tqdm(train_loader)
     else:
         data_prob = data_loader
-    
+
     for step, (_, x, y, c, _) in enumerate(data_prob):
         optimizer.zero_grad()
         x, y = x.float().to(device), y.float().to(device)
@@ -96,12 +97,21 @@ def train_tracknet(model, optimizer, data_loader, param_dict):
         # Sample mixup
         if param_dict['alpha'] > 0:
             x, y = mixup(x, y, param_dict['alpha'])
-        
-        y_pred = model(x)
-        loss = WBCELoss(y_pred, y)
-        epoch_loss.append(loss.item())
-        loss.backward()
-        optimizer.step()
+
+        if scaler is not None:
+            with torch.autocast('cuda', dtype=torch.float16):
+                y_pred = model(x)
+                loss = WBCELoss(y_pred, y)
+            epoch_loss.append(loss.item())
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            y_pred = model(x)
+            loss = WBCELoss(y_pred, y)
+            epoch_loss.append(loss.item())
+            loss.backward()
+            optimizer.step()
 
         if param_dict['verbose'] and (step + 1) % display_step == 0:
             data_prob.set_description(f'Training')
@@ -187,7 +197,7 @@ def train_inpaintnet(model, optimizer, data_loader, param_dict):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name', type=str, default='TrackNet', choices=['TrackNet', 'TrackNetV4', 'InpaintNet'], help='model type')
+    parser.add_argument('--model_name', type=str, default='TrackNet', choices=['TrackNet', 'TrackNet2x', 'TrackNetV4', 'InpaintNet'], help='model type')
     parser.add_argument('--seq_len', type=int, default=8, help='sequence length of input')
     parser.add_argument('--epochs', type=int, default=3, help='number of epochs')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size of training')
@@ -203,8 +213,13 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=13, help='random seed')
     parser.add_argument('--save_dir', type=str, default='exp', help='directory to save the checkpoints and prediction result')
     parser.add_argument('--pretrained', type=str, default='', help='path to pretrained TrackNet checkpoint (for initializing TrackNetV4)')
+    parser.add_argument('--height', type=int, default=288, help='input image height (default: 288, use 576 for 2x)')
+    parser.add_argument('--width', type=int, default=512, help='input image width (default: 512, use 1024 for 2x)')
     parser.add_argument('--debug', action='store_true', default=False)
     parser.add_argument('--verbose', action='store_true', default=False)
+    parser.add_argument('--fp16', action='store_true', default=False, help='use mixed precision (FP16) training (CUDA only)')
+    parser.add_argument('--compile', action='store_true', default=False, help='use torch.compile for model optimization (CUDA only)')
+    parser.add_argument('--num_workers', type=int, default=-1, help='number of dataloader workers (-1 for auto)')
     args = parser.parse_args()
     param_dict = vars(args)
 
@@ -227,8 +242,11 @@ if __name__ == '__main__':
     # Cap workers based on available CPUs (too many cause thrash on Colab/Mac)
     import platform, multiprocessing
     cpu_count = multiprocessing.cpu_count()
-    max_workers = min(cpu_count, 2) if platform.system() == 'Darwin' else min(cpu_count, 4)
-    num_workers = min(args.batch_size, max_workers)
+    if args.num_workers >= 0:
+        num_workers = args.num_workers
+    else:
+        max_workers = min(cpu_count, 2) if platform.system() == 'Darwin' else min(cpu_count, 4)
+        num_workers = min(args.batch_size, max_workers)
     
     # Load checkpoint
     if args.resume_training:
@@ -243,14 +261,14 @@ if __name__ == '__main__':
 
     print(f'Parameters: {param_dict}')
     print(f'Load dataset...')
-    is_tracknet = args.model_name in ('TrackNet', 'TrackNetV4')
+    is_tracknet = args.model_name in ('TrackNet', 'TrackNet2x', 'TrackNetV4')
     data_mode = 'heatmap' if is_tracknet else 'coordinate'
     # Set device (MPS for Mac GPU, CUDA for NVIDIA, CPU as fallback)
     device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device: {device}')
 
-    train_dataset = Shuttlecock_Trajectory_Dataset(split='train', seq_len=args.seq_len, sliding_step=1, data_mode=data_mode, bg_mode=args.bg_mode, frame_alpha=args.frame_alpha, debug=args.debug)
-    val_dataset = Shuttlecock_Trajectory_Dataset(split='val', seq_len=args.seq_len, sliding_step=args.seq_len, data_mode=data_mode, bg_mode=args.bg_mode, debug=args.debug)
+    train_dataset = Shuttlecock_Trajectory_Dataset(split='train', seq_len=args.seq_len, sliding_step=1, data_mode=data_mode, bg_mode=args.bg_mode, frame_alpha=args.frame_alpha, debug=args.debug, HEIGHT=args.height, WIDTH=args.width)
+    val_dataset = Shuttlecock_Trajectory_Dataset(split='val', seq_len=args.seq_len, sliding_step=args.seq_len, data_mode=data_mode, bg_mode=args.bg_mode, debug=args.debug, HEIGHT=args.height, WIDTH=args.width)
     # pin_memory=False on MPS: pin_memory is a CUDA optimization, hurts performance on MPS
     use_pin = (device == 'cuda')
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=num_workers, drop_last=True, pin_memory=use_pin, persistent_workers=num_workers > 0)
@@ -258,6 +276,18 @@ if __name__ == '__main__':
 
     print(f'Create {args.model_name}...')
     model = get_model(args.model_name, args.seq_len, args.bg_mode).to(device) if is_tracknet else get_model(args.model_name).to(device)
+
+    # Mixed precision (CUDA only)
+    use_fp16 = getattr(args, 'fp16', False) and device == 'cuda'
+    scaler = torch.amp.GradScaler('cuda') if use_fp16 else None
+    if use_fp16:
+        print('Mixed precision (FP16) enabled')
+
+    # torch.compile (CUDA only, PyTorch 2.0+)
+    if getattr(args, 'compile', False) and device == 'cuda' and hasattr(torch, 'compile'):
+        print('Compiling model with torch.compile...')
+        model = torch.compile(model)
+
     train_fn = train_tracknet if is_tracknet else train_inpaintnet
     eval_fn = eval_tracknet if is_tracknet else eval_inpaintnet
 
@@ -308,7 +338,7 @@ if __name__ == '__main__':
     for epoch in range(start_epoch, args.epochs):
         print(f'Epoch [{epoch+1} / {args.epochs}]')
         start_time = time.time()
-        train_loss = train_fn(model, optimizer, train_loader, param_dict)
+        train_loss = train_fn(model, optimizer, train_loader, param_dict, scaler=scaler) if is_tracknet else train_fn(model, optimizer, train_loader, param_dict)
         val_loss, val_res = eval_fn(model, val_loader, param_dict)
 
         if tb_writer is not None:

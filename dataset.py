@@ -471,7 +471,13 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
         Returns the full rally frames array (N, C, H, W) or None.
         Uses uncompressed .npy files for fast loading with a small LRU cache."""
         if not hasattr(self, '_pc_dir'):
-            self._pc_dir = os.path.join(self.root_dir, 'precomputed', self.bg_mode or 'raw')
+            # Include resolution in cache dir so different resolutions don't collide
+            res_suffix = f'_{self.HEIGHT}x{self.WIDTH}'
+            self._pc_dir = os.path.join(self.root_dir, 'precomputed', (self.bg_mode or 'raw') + res_suffix)
+            # Also check the old path (without resolution) for backwards compatibility
+            old_dir = os.path.join(self.root_dir, 'precomputed', self.bg_mode or 'raw')
+            if not os.path.isdir(self._pc_dir) and os.path.isdir(old_dir) and self.HEIGHT == HEIGHT and self.WIDTH == WIDTH:
+                self._pc_dir = old_dir
             self._pc_available = os.path.isdir(self._pc_dir)
             self._pc_rally_cache = {}
 

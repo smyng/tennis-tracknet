@@ -9,7 +9,7 @@ import pandas as pd
 
 from collections import deque
 from PIL import Image, ImageDraw
-from model import TrackNet, TrackNetV4, InpaintNet
+from model import TrackNet, TrackNet2x, TrackNetV4, InpaintNet
 
 # Global variables
 HEIGHT = 288
@@ -40,6 +40,8 @@ class ResumeArgumentParser():
         self.save_dir = param_dict['save_dir']
         self.debug = param_dict['debug']
         self.verbose = param_dict['verbose']
+        self.height = param_dict.get('height', HEIGHT)
+        self.width = param_dict.get('width', WIDTH)
 
 
 ###################################  Helper Functions ###################################
@@ -63,8 +65,13 @@ def get_model(model_name, seq_len=None, bg_mode=None):
             model (torch.nn.Module): Model with specified configuration
     """
 
-    if model_name in ('TrackNet', 'TrackNetV4'):
-        cls = TrackNetV4 if model_name == 'TrackNetV4' else TrackNet
+    if model_name in ('TrackNet', 'TrackNet2x', 'TrackNetV4'):
+        if model_name == 'TrackNetV4':
+            cls = TrackNetV4
+        elif model_name == 'TrackNet2x':
+            cls = TrackNet2x
+        else:
+            cls = TrackNet
         if bg_mode == 'subtract':
             model = cls(in_dim=seq_len, out_dim=seq_len)
         elif bg_mode == 'subtract_concat':
@@ -134,24 +141,25 @@ def to_img_format(input, num_ch=1):
     """
 
     assert len(input.shape) == 4, 'Input must be 4D tensor.'
-    
+
     if num_ch == 1:
         # (N, L, H ,W)
         return input
     else:
         # (N, L*C, H ,W)
+        h, w = input.shape[2], input.shape[3]
         input = np.transpose(input, (0, 2, 3, 1)) # (N, H ,W, L*C)
         seq_len = int(input.shape[-1]/num_ch)
-        img_seq = np.array([]).reshape(0, seq_len, HEIGHT, WIDTH, 3) # (N, L, H, W, 3)
+        img_seq = np.array([]).reshape(0, seq_len, h, w, 3) # (N, L, H, W, 3)
         # For each sample in the batch
         for n in range(input.shape[0]):
-            frame = np.array([]).reshape(0, HEIGHT, WIDTH, 3)
+            frame = np.array([]).reshape(0, h, w, 3)
             # Get each frame in the sequence
             for f in range(0, input.shape[-1], num_ch):
                 img = input[n, :, :, f:f+3]
-                frame = np.concatenate((frame, img.reshape(1, HEIGHT, WIDTH, 3)), axis=0)
-            img_seq = np.concatenate((img_seq, frame.reshape(1, seq_len, HEIGHT, WIDTH, 3)), axis=0)
-        
+                frame = np.concatenate((frame, img.reshape(1, h, w, 3)), axis=0)
+            img_seq = np.concatenate((img_seq, frame.reshape(1, seq_len, h, w, 3)), axis=0)
+
         return img_seq
 
 def get_num_frames(rally_dir):

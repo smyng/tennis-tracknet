@@ -73,6 +73,68 @@ class TrackNet(nn.Module):
         return x
 
 
+class TrackNet2x(nn.Module):
+    """TrackNet variant for 2x input resolution (576x1024).
+
+    Adds one extra encoder/decoder stage at the full resolution (576x1024)
+    with lightweight 48-channel convolutions, then pools down to 288x512
+    where the standard 3-stage encoder operates identically to the original.
+    The bottleneck stays at 36x64, keeping total compute ~1.6x of original.
+
+    Architecture:
+        Encoder:
+            stage0: Double2DConv(in_dim->48) @ 576x1024 + MaxPool
+            stage1: Double2DConv(48->64)     @ 288x512  + MaxPool
+            stage2: Double2DConv(64->128)    @ 144x256  + MaxPool
+            stage3: Triple2DConv(128->256)   @ 72x128   + MaxPool
+        Bottleneck: Triple2DConv(256->512)   @ 36x64
+        Decoder (mirror + skip connections):
+            up1: Triple2DConv(768->256)      @ 72x128
+            up2: Double2DConv(384->128)      @ 144x256
+            up3: Double2DConv(192->64)       @ 288x512
+            up4: Double2DConv(112->48)       @ 576x1024
+        Output: Conv2d(48->out_dim) + Sigmoid
+    """
+    def __init__(self, in_dim, out_dim):
+        super(TrackNet2x, self).__init__()
+        # Stage 0: high-res front-end (576x1024)
+        self.down_block_0 = Double2DConv(in_dim, 48)
+        # Stages 1-3: same structure as original TrackNet
+        self.down_block_1 = Double2DConv(48, 64)
+        self.down_block_2 = Double2DConv(64, 128)
+        self.down_block_3 = Triple2DConv(128, 256)
+        self.bottleneck = Triple2DConv(256, 512)
+        # Decoder
+        self.up_block_1 = Triple2DConv(768, 256)
+        self.up_block_2 = Double2DConv(384, 128)
+        self.up_block_3 = Double2DConv(192, 64)
+        self.up_block_4 = Double2DConv(64 + 48, 48)  # concat with stage0 skip
+        self.predictor = nn.Conv2d(48, out_dim, (1, 1))
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x0 = self.down_block_0(x)                                       # (N,   48,  576,  1024)
+        x = nn.MaxPool2d((2, 2), stride=(2, 2))(x0)                     # (N,   48,  288,   512)
+        x1 = self.down_block_1(x)                                       # (N,   64,  288,   512)
+        x = nn.MaxPool2d((2, 2), stride=(2, 2))(x1)                     # (N,   64,  144,   256)
+        x2 = self.down_block_2(x)                                       # (N,  128,  144,   256)
+        x = nn.MaxPool2d((2, 2), stride=(2, 2))(x2)                     # (N,  128,   72,   128)
+        x3 = self.down_block_3(x)                                       # (N,  256,   72,   128)
+        x = nn.MaxPool2d((2, 2), stride=(2, 2))(x3)                     # (N,  256,   36,    64)
+        x = self.bottleneck(x)                                          # (N,  512,   36,    64)
+        x = torch.cat([nn.Upsample(scale_factor=2)(x), x3], dim=1)      # (N,  768,   72,   128)
+        x = self.up_block_1(x)                                          # (N,  256,   72,   128)
+        x = torch.cat([nn.Upsample(scale_factor=2)(x), x2], dim=1)      # (N,  384,  144,   256)
+        x = self.up_block_2(x)                                          # (N,  128,  144,   256)
+        x = torch.cat([nn.Upsample(scale_factor=2)(x), x1], dim=1)      # (N,  192,  288,   512)
+        x = self.up_block_3(x)                                          # (N,   64,  288,   512)
+        x = torch.cat([nn.Upsample(scale_factor=2)(x), x0], dim=1)      # (N,  112,  576,  1024)
+        x = self.up_block_4(x)                                          # (N,   48,  576,  1024)
+        x = self.predictor(x)                                           # (N, out_dim, 576, 1024)
+        x = self.sigmoid(x)
+        return x
+
+
 class MotionAttention(nn.Module):
     """
     Learnable motion attention from TrackNetV4.
