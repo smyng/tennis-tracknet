@@ -42,6 +42,9 @@ class ResumeArgumentParser():
         self.verbose = param_dict['verbose']
         self.height = param_dict.get('height', HEIGHT)
         self.width = param_dict.get('width', WIDTH)
+        self.fp16 = param_dict.get('fp16', False)
+        self.compile = param_dict.get('compile', False)
+        self.num_workers = param_dict.get('num_workers', -1)
 
 
 ###################################  Helper Functions ###################################

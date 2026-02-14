@@ -252,11 +252,17 @@ if __name__ == '__main__':
     if args.resume_training:
         print(f'Load checkpoint from {args.model_name}_cur.pt...')
         assert os.path.exists(os.path.join(args.save_dir, f'{args.model_name}_cur.pt')), f'No checkpoint found in {args.save_dir}'
-        ckpt = torch.load(os.path.join(args.save_dir, f'{args.model_name}_cur.pt'))
+        ckpt = torch.load(os.path.join(args.save_dir, f'{args.model_name}_cur.pt'), map_location='cpu')
         param_dict = ckpt['param_dict']
+        # Override runtime flags from CLI (these are environment-specific, not model-specific)
         ckpt['param_dict']['resume_training'] = args.resume_training
         ckpt['param_dict']['epochs'] = args.epochs
         ckpt['param_dict']['verbose'] = args.verbose
+        ckpt['param_dict']['batch_size'] = args.batch_size
+        ckpt['param_dict']['fp16'] = getattr(args, 'fp16', False)
+        ckpt['param_dict']['compile'] = getattr(args, 'compile', False)
+        ckpt['param_dict']['num_workers'] = getattr(args, 'num_workers', -1)
+        ckpt['param_dict']['save_dir'] = args.save_dir
         args = ResumeArgumentParser(ckpt['param_dict'])
 
     print(f'Parameters: {param_dict}')
