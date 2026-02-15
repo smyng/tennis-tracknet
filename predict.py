@@ -99,14 +99,14 @@ if __name__ == '__main__':
     print(f"Using device: {device}")
 
     # Load model (with map_location for cross-device compatibility)
-    tracknet_ckpt = torch.load(args.tracknet_file, map_location=device)
+    tracknet_ckpt = torch.load(args.tracknet_file, map_location=device, weights_only=False)
     tracknet_seq_len = tracknet_ckpt['param_dict']['seq_len']
     bg_mode = tracknet_ckpt['param_dict']['bg_mode']
     tracknet = get_model('TrackNet', tracknet_seq_len, bg_mode).to(device)
     tracknet.load_state_dict(tracknet_ckpt['model'])
 
     if args.inpaintnet_file:
-        inpaintnet_ckpt = torch.load(args.inpaintnet_file, map_location=device)
+        inpaintnet_ckpt = torch.load(args.inpaintnet_file, map_location=device, weights_only=False)
         inpaintnet_seq_len = inpaintnet_ckpt['param_dict']['seq_len']
         inpaintnet = get_model('InpaintNet').to(device)
         inpaintnet.load_state_dict(inpaintnet_ckpt['model'])

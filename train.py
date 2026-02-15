@@ -252,7 +252,7 @@ if __name__ == '__main__':
     if args.resume_training:
         print(f'Load checkpoint from {args.model_name}_cur.pt...')
         assert os.path.exists(os.path.join(args.save_dir, f'{args.model_name}_cur.pt')), f'No checkpoint found in {args.save_dir}'
-        ckpt = torch.load(os.path.join(args.save_dir, f'{args.model_name}_cur.pt'), map_location='cpu')
+        ckpt = torch.load(os.path.join(args.save_dir, f'{args.model_name}_cur.pt'), map_location='cpu', weights_only=False)
         param_dict = ckpt['param_dict']
         # Override runtime flags from CLI (these are environment-specific, not model-specific)
         ckpt['param_dict']['resume_training'] = args.resume_training
@@ -300,7 +300,7 @@ if __name__ == '__main__':
     # Load pretrained weights (e.g., shuttlecock -> tennis, or V3 -> V4)
     if getattr(args, 'pretrained', ''):
         print(f'Loading pretrained weights from {args.pretrained}...')
-        ckpt = torch.load(args.pretrained, map_location=device)
+        ckpt = torch.load(args.pretrained, map_location=device, weights_only=False)
         if hasattr(model, 'load_tracknet_weights'):
             # V4: load V3 weights into matching layers
             model.load_tracknet_weights(ckpt['model'])
