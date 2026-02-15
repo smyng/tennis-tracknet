@@ -602,20 +602,21 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
                 w, h = self.img_config['img_shape'][data_idx[0][0]]
                 w_scaler, h_scaler = self.img_config['img_scaler'][data_idx[0][0]]
 
-                if self.bg_mode:
+                # Load precomputed frames FIRST (avoids unnecessary median loading)
+                pc_frames = self._load_precomputed_frames(frame_file[0])
+
+                # Only load median when needed: fallback path (no precomputed) or concat mode
+                median_img = None
+                if self.bg_mode and (pc_frames is None or self.bg_mode == 'concat'):
                     file_format_str = os.path.join('{}', 'frame', '{}','{}.'+IMG_FORMAT)
-                    match_dir, rally_id, _ = parse.parse(file_format_str, frame_file[0])#'{}/frame/{}/{}.png', frame_file[0])
+                    match_dir, rally_id, _ = parse.parse(file_format_str, frame_file[0])
                     median_file = os.path.join(match_dir, 'median.npz') if os.path.exists(os.path.join(match_dir, 'median.npz')) else os.path.join(match_dir, 'frame', rally_id, 'median.npz')
                     assert os.path.exists(median_file), f'{median_file} does not exist.'
                     median_img = np.load(median_file)['median']
-                
+
                 # Frame mixup
-                # Sample the mixing ratio
                 lamb = np.random.beta(self.frame_alpha, self.frame_alpha)
                 lamb32 = np.float32(lamb)
-
-                # Load precomputed frames for this rally (fast path)
-                pc_frames = self._load_precomputed_frames(frame_file[0])
 
                 # Determine channels for pre-allocation
                 if self.bg_mode == 'subtract':
@@ -648,8 +649,8 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
                     else:
                         return np.moveaxis(np.array(img.resize(size=(self.WIDTH, self.HEIGHT))), -1, 0)
 
-                # First frame
-                prev_img = _load_frame(0).astype(np.float32)
+                # First frame (uint8 → float32 conversion happens during assignment)
+                prev_img = _load_frame(0)
                 all_frames[0] = prev_img
                 prev_coor = coor[0]
                 prev_vis = vis[0]
@@ -660,11 +661,11 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
 
                 slot = 1
                 for i in range(1, self.seq_len):
-                    cur_img = _load_frame(i).astype(np.float32)
+                    cur_img = _load_frame(i)
 
-                    # Interpolated frame (float32 arithmetic, no float64 promotion)
-                    np.multiply(prev_img, lamb32, out=all_frames[slot])
-                    all_frames[slot] += cur_img * (1.0 - lamb32)
+                    # Interpolated frame — write directly to pre-allocated buffer
+                    # uint8 * float32 → float32, written to float32 output
+                    all_frames[slot] = prev_img * lamb32 + cur_img * (np.float32(1.0) - lamb32)
 
                     # Heatmap and coordinate interpolation
                     if vis[i] == 0:
@@ -685,14 +686,15 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
 
                     slot += 1
 
-                    # Current frame
+                    # Current frame (uint8 view from precomputed, no copy until assignment)
                     all_frames[slot] = cur_img
                     all_heatmaps[slot] = cur_heatmap
                     all_coor[slot] = coor[i]
                     all_vis[slot] = vis[i]
                     slot += 1
 
-                    prev_img, prev_heatmap, prev_coor, prev_vis = cur_img, cur_heatmap, coor[i], vis[i]
+                    prev_img = cur_img  # uint8 view, no copy
+                    prev_heatmap, prev_coor, prev_vis = cur_heatmap, coor[i], vis[i]
 
                 # Resample input sequence
                 rand_id = np.sort(np.random.choice(n_total, self.seq_len, replace=False))
@@ -724,19 +726,20 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
                 w, h = self.img_config['img_shape'][data_idx[0][0]]
                 w_scaler, h_scaler = self.img_config['img_scaler'][data_idx[0][0]]
 
-                # Read median image
-                if self.bg_mode:
+                # Load precomputed frames FIRST (avoids unnecessary median loading)
+                pc_frames = self._load_precomputed_frames(frame_file[0])
+
+                # Only load median when needed: fallback path (no precomputed) or concat mode
+                median_img = None
+                if self.bg_mode and (pc_frames is None or self.bg_mode == 'concat'):
                     file_format_str = os.path.join('{}', 'frame', '{}','{}.'+IMG_FORMAT)
-                    match_dir, rally_id, _ = parse.parse(file_format_str, frame_file[0])#'{}/frame/{}/{}.png', frame_file[0])
+                    match_dir, rally_id, _ = parse.parse(file_format_str, frame_file[0])
                     median_file = os.path.join(match_dir, 'median.npz') if os.path.exists(os.path.join(match_dir, 'median.npz')) else os.path.join(match_dir, 'frame', rally_id, 'median.npz')
                     assert os.path.exists(median_file), f'{median_file} does not exist.'
                     median_img = np.load(median_file)['median']
 
                 frames = np.array([]).reshape(0, self.HEIGHT, self.WIDTH)
                 heatmaps = np.array([]).reshape(0, self.HEIGHT, self.WIDTH)
-
-                # Load precomputed frames for this rally (fast path)
-                pc_frames = self._load_precomputed_frames(frame_file[0])
 
                 # Read image and generate heatmap
                 for i in range(self.seq_len):
