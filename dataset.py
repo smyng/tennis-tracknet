@@ -456,14 +456,20 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
                dict(img_scaler=self.pred_dict['Img_scaler'], img_shape=self.pred_dict['Img_shape']) 
     
     def _get_heatmap(self, cx, cy):
-        """ Generate a Gaussian heatmap centered at (cx, cy). """
+        """ Generate a binary circle heatmap centered at (cx, cy). """
         if cx == cy == 0:
             return np.zeros((1, self.HEIGHT, self.WIDTH))
-        x, y = np.meshgrid(np.linspace(1, self.WIDTH, self.WIDTH), np.linspace(1, self.HEIGHT, self.HEIGHT))
-        heatmap = ((y - (cy + 1))**2) + ((x - (cx + 1))**2)
-        heatmap[heatmap <= self.sigma**2] = 1.
-        heatmap[heatmap > self.sigma**2] = 0.
-        heatmap = heatmap * self.mag
+        heatmap = np.zeros((self.HEIGHT, self.WIDTH))
+        # Only compute the small patch around the center (radius sigma)
+        r = int(self.sigma) + 1
+        y_min = max(0, int(cy) - r)
+        y_max = min(self.HEIGHT, int(cy) + r + 1)
+        x_min = max(0, int(cx) - r)
+        x_max = min(self.WIDTH, int(cx) + r + 1)
+        if y_min < y_max and x_min < x_max:
+            yy, xx = np.ogrid[y_min:y_max, x_min:x_max]
+            dist_sq = (yy - cy)**2 + (xx - cx)**2
+            heatmap[y_min:y_max, x_min:x_max] = (dist_sq <= self.sigma**2) * self.mag
         return heatmap.reshape(1, self.HEIGHT, self.WIDTH)
 
     def _load_precomputed_frames(self, frame_file_path):
