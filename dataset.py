@@ -479,7 +479,14 @@ class Shuttlecock_Trajectory_Dataset(Dataset):
         if not hasattr(self, '_pc_dir'):
             # Include resolution in cache dir so different resolutions don't collide
             res_suffix = f'_{self.HEIGHT}x{self.WIDTH}'
-            self._pc_dir = os.path.join(self.root_dir, 'precomputed', (self.bg_mode or 'raw') + res_suffix)
+            bg_key = (self.bg_mode or 'raw') + res_suffix
+            # Check PRECOMPUTED_DIR env var first (e.g., local SSD on Colab)
+            override = os.environ.get('PRECOMPUTED_DIR', '')
+            override_path = os.path.join(override, bg_key) if override else ''
+            if override_path and os.path.isdir(override_path):
+                self._pc_dir = override_path
+            else:
+                self._pc_dir = os.path.join(self.root_dir, 'precomputed', bg_key)
             # Also check the old path (without resolution) for backwards compatibility
             old_dir = os.path.join(self.root_dir, 'precomputed', self.bg_mode or 'raw')
             if not os.path.isdir(self._pc_dir) and os.path.isdir(old_dir) and self.HEIGHT == HEIGHT and self.WIDTH == WIDTH:
