@@ -289,10 +289,7 @@ if __name__ == '__main__':
     if use_fp16:
         print('Mixed precision (FP16) enabled')
 
-    # torch.compile (CUDA only, PyTorch 2.0+)
-    if getattr(args, 'compile', False) and device == 'cuda' and hasattr(torch, 'compile'):
-        print('Compiling model with torch.compile...')
-        model = torch.compile(model)
+    use_compile = getattr(args, 'compile', False) and device == 'cuda' and hasattr(torch, 'compile')
 
     train_fn = train_tracknet if is_tracknet else train_inpaintnet
     eval_fn = eval_tracknet if is_tracknet else eval_inpaintnet
@@ -337,7 +334,11 @@ if __name__ == '__main__':
     else:
         max_val_acc = 0.
         start_epoch = 0
-        
+
+    # torch.compile AFTER loading weights (compiled model prefixes keys with _orig_mod.)
+    if use_compile:
+        print('Compiling model with torch.compile...')
+        model = torch.compile(model)
 
     print(f'Start training...')
     train_start_time = time.time()
