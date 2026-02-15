@@ -262,6 +262,7 @@ if __name__ == '__main__':
         ckpt['param_dict']['fp16'] = getattr(args, 'fp16', False)
         ckpt['param_dict']['compile'] = getattr(args, 'compile', False)
         ckpt['param_dict']['num_workers'] = getattr(args, 'num_workers', -1)
+        ckpt['param_dict']['frame_alpha'] = getattr(args, 'frame_alpha', -1)
         ckpt['param_dict']['save_dir'] = args.save_dir
         args = ResumeArgumentParser(ckpt['param_dict'])
 
