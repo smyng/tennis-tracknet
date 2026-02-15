@@ -262,8 +262,10 @@ if __name__ == '__main__':
         ckpt['param_dict']['fp16'] = getattr(args, 'fp16', False)
         ckpt['param_dict']['compile'] = getattr(args, 'compile', False)
         ckpt['param_dict']['num_workers'] = getattr(args, 'num_workers', -1)
-        ckpt['param_dict']['frame_alpha'] = getattr(args, 'frame_alpha', -1)
         ckpt['param_dict']['save_dir'] = args.save_dir
+        # Only override frame_alpha if explicitly passed on CLI (default -1 would disable augmentation)
+        if args.frame_alpha != -1:
+            ckpt['param_dict']['frame_alpha'] = args.frame_alpha
         args = ResumeArgumentParser(ckpt['param_dict'])
 
     print(f'Parameters: {param_dict}')
