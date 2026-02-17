@@ -297,6 +297,10 @@ if __name__ == '__main__':
     train_fn = train_tracknet if is_tracknet else train_inpaintnet
     eval_fn = eval_tracknet if is_tracknet else eval_inpaintnet
 
+    # Strip _orig_mod. prefix added by torch.compile() from state dicts
+    def strip_compile_prefix(state_dict):
+        return {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
+
     # Load pretrained weights (e.g., shuttlecock -> tennis, or V3 -> V4)
     if getattr(args, 'pretrained', ''):
         print(f'Loading pretrained weights from {args.pretrained}...')
@@ -306,7 +310,7 @@ if __name__ == '__main__':
             model.load_tracknet_weights(ckpt['model'])
         else:
             # V3: direct weight load (same architecture)
-            model.load_state_dict(ckpt['model'])
+            model.load_state_dict(strip_compile_prefix(ckpt['model']))
             print(f'Loaded all weights from pretrained checkpoint')
 
     # Create optimizer
@@ -327,7 +331,7 @@ if __name__ == '__main__':
 
     # Init statistics
     if args.resume_training:
-        model.load_state_dict(ckpt['model'])
+        model.load_state_dict(strip_compile_prefix(ckpt['model']))
         optimizer.load_state_dict(ckpt['optimizer'])
         if args.lr_scheduler:
             scheduler.load_state_dict(ckpt['scheduler'])
